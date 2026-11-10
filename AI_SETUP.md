@@ -1,21 +1,29 @@
-# StreetSense AI — secure model setup
+# StreetSense AI — free-tier Gemini setup
 
-The assistant is implemented as a Supabase Edge Function. The browser calls the function with the signed-in user's Supabase session. The function validates that session, then calls the OpenAI Responses API using a server-side secret.
+The assistant runs through a Supabase Edge Function. The browser sends the signed-in user's Supabase session to the function. The function validates that session and calls Google's Gemini API using a server-side secret.
 
-## What this protects
+## Free-tier provider
 
-- The OpenAI API key is never sent to the browser.
-- The function requires a valid signed-in Supabase user (JWT verification enabled).
-- Message size and conversation history are bounded.
-- The model is instructed not to invent live road conditions, claim report actions, or replace emergency services.
-- Responses are requested with `store: false`.
+StreetSense uses the Gemini Developer API free tier by default, with `gemini-3.8-flash`. Google lists free input and output tokens for eligible models, subject to model availability and project-specific request/token limits. Current limits are shown in Google AI Studio and can change.
 
-## Required Supabase function secrets
+- Quick mode requests low reasoning effort.
+- Deep reasoning requests high reasoning effort and may use more tokens and quota.
+- If the provider returns a rate-limit or quota response (HTTP 429), StreetSense explains that the user must wait and try again. Daily request quotas reset at midnight Pacific Time; short-window limits may recover sooner.
+- We do not automatically switch to a paid provider or create billable usage.
 
-Set these in the Supabase project for Edge Functions:
+Official references:
+- Gemini API free-tier pricing: https://ai.google.dev/gemini-api/docs/pricing
+- Rate limits: https://ai.google.dev/gemini-api/docs/rate-limits
+- Thinking controls: https://ai.google.dev/gemini-api/docs/thinking
 
-- `OPENAI_API_KEY` — a secret OpenAI API key. Never put this in `index.html`, GitHub, or a `VITE_*` variable.
-- `STREETSENSE_AI_MODEL` — optional model override; defaults to `gpt-5.5`.
+## Required secret
+
+Create a Gemini API key in Google AI Studio: https://aistudio.google.com/app/apikey
+
+Then add it in the Supabase project's Edge Function secrets as:
+
+- `GEMINI_API_KEY` — secret Gemini API key. Never put this in `index.html`, GitHub, or a `VITE_*` variable.
+- `STREETSENSE_GEMINI_MODEL` — optional model override. Default: `gemini-3.8-flash`.
 
 Supabase supplies `SUPABASE_URL` and `SUPABASE_ANON_KEY` to Edge Functions.
 
@@ -23,17 +31,20 @@ Supabase supplies `SUPABASE_URL` and `SUPABASE_ANON_KEY` to Edge Functions.
 
 From a machine with the Supabase CLI linked to the existing project:
 
-1. Set the function secrets in Supabase.
-2. Deploy `streetsense-assistant` from this repository.
-3. Keep JWT verification enabled.
-4. Test while signed in with a normal user account.
+1. Create the Gemini key in Google AI Studio.
+2. Add `GEMINI_API_KEY` as a Supabase Edge Function secret.
+3. Deploy the `streetsense-assistant` function from this repository.
+4. Keep JWT verification enabled.
+5. Test both Quick and Deep reasoning while signed in.
 
-The function uses the existing project and does not create or alter database tables.
+The function uses the existing Supabase project and does not create or alter database tables.
 
-## Cost and availability
+## Free-tier privacy and usage notes
 
-OpenAI API usage is separate from a ChatGPT subscription and may incur API charges. Set project spend limits and usage alerts in the OpenAI Platform before enabling public use. If no provider key is configured, the function returns a clear configuration message and the web app retains its local safety-guide fallback.
+Google's free-tier pricing page states that content may be used to improve Google's products. Do not send passwords, identity numbers, sensitive personal data or private reporter details to the model. The function does not read private reports or attach user profile details.
 
-## Current limits
+Free-tier quotas are not guaranteed fixed numbers: they depend on model, project and current availability. Check the live quota in Google AI Studio. A 429 response is handled as a wait-and-resume condition. No paid fallback is configured.
 
-The function does not read private reports, write report records, publish alerts, contact authorities, or fetch live traffic/road data. Those capabilities require separate, permission-checked workflows and human approval.
+## Safety and current limits
+
+The function does not write report records, publish alerts, contact authorities, fetch live traffic/road data or verify a report. Severity suggestions remain preliminary and must be reviewed by a human coordinator. The assistant is not an emergency-response service.
