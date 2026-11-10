@@ -42,12 +42,6 @@ function json(body: unknown, status = 200, headers: Record<string, string> = {})
   });
 }
 
-function extractText(payload: any): string {
-  const parts = payload?.candidates?.[0]?.content?.parts ?? [];
-  return parts.filter((part: any) => typeof part?.text === "string" && !part?.thought)
-    .map((part: any) => part.text).join("\n").trim();
-}
-
 Deno.serve(async (req) => {
   const origin = req.headers.get("Origin");
   const corsHeaders = corsHeadersFor(origin);
@@ -62,11 +56,11 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const geminiKey = Deno.env.get("GEMINI_API_KEY");
-  const model = Deno.env.get("STREETSENSE_GEMINI_MODEL") ?? "gemini-3.8-flash";
+  const groqKey = Deno.env.get("GROQ_API_KEY");
+  const model = Deno.env.get("STREETSENSE_GROQ_MODEL") ?? "llama-3.3-70b-versatile";
 
   if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) return respond({ error: "Supabase function configuration is incomplete." }, 503);
-  if (!geminiKey) return respond({ error: "The free-tier Gemini API key has not been configured yet. The local safety guide is still available." }, 503);
+  if (!groqKey) return respond({ error: "StreetSense AI provider is not configured yet. The local safety guide is still available." }, 503);
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
@@ -104,7 +98,7 @@ Deno.serve(async (req) => {
     }, 429);
   }
 
-  const reasoning = body?.reasoning === "deep" ? "high" : "low";
+  const reasoning = body?.reasoning === "deep" ? "deep" : "quick";
   const history = Array.isArray(body?.history) ? body.history.slice(-8).flatMap((item: any) => {
     const role = item?.role === "assistant" ? "assistant" : item?.role === "user" ? "user" : null;
     const content = typeof item?.content === "string" ? item.content.trim().slice(0, 1200) : "";
@@ -112,42 +106,44 @@ Deno.serve(async (req) => {
   }) : [];
 
   try {
-    const contents = [...history, { role: "user", content: message }].map((item: any) => ({
-      role: item.role === "assistant" ? "model" : "user",
-      parts: [{ text: item.content }],
-    }));
-    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    const messages = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...history,
+      { role: "user", content: message },
+    ];
+    const upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "x-goog-api-key": geminiKey, "Content-Type": "application/json" },
+      headers: {
+        "Authorization": `Bearer ${groqKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents,
-        generationConfig: {
-          maxOutputTokens: 4096,
-          thinkingConfig: { thinkingLevel: reasoning },
-        },
+        model,
+        messages,
+        max_completion_tokens: reasoning === "deep" ? 1800 : 900,
+        temperature: 0.3,
       }),
       signal: AbortSignal.timeout(30000),
     });
 
     const result = await upstream.json().catch(() => ({}));
     if (!upstream.ok) {
-      console.error("Gemini request failed", upstream.status, result?.error?.status ?? "unknown");
+      console.error("Groq request failed", upstream.status, result?.error?.code ?? "unknown");
       if (upstream.status === 429) {
         const retryHeader = upstream.headers.get("Retry-After");
         const retryAfterSeconds = retryHeader ? Number(retryHeader) : null;
         return respond({
           error: retryAfterSeconds
-            ? `StreetSense AI has reached a temporary free-tier limit. Please wait about ${Math.max(1, Math.ceil(retryAfterSeconds / 60))} minute(s) and try again.`
-            : "StreetSense AI has reached its free-tier request or daily quota. Please wait for the limit to reset, then try again. Deep reasoning uses more of the available allowance.",
+            ? `StreetSense AI has reached a temporary provider limit. Please wait about ${Math.max(1, Math.ceil(retryAfterSeconds / 60))} minute(s) and try again.`
+            : "StreetSense AI has reached its current provider quota. Please wait and try again later.",
           retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : null,
         }, 429);
       }
-      return respond({ error: "Gemini could not complete that request. Please try again." }, 502);
+      return respond({ error: "Groq could not complete that request. Please try again." }, 502);
     }
 
-    const reply = extractText(result);
-    if (!reply) return respond({ error: "Gemini returned an empty response. Please try again." }, 502);
+    const reply = result?.choices?.[0]?.message?.content?.trim();
+    if (typeof reply !== "string" || !reply) return respond({ error: "StreetSense AI returned an empty response. Please try again." }, 502);
     return respond({ reply, model, reasoning });
   } catch (error) {
     console.error("StreetSense AI request error", error instanceof Error ? error.message : "unknown");
