@@ -51,7 +51,7 @@ function extractText(payload: any): string {
 Deno.serve(async (req) => {
   const origin = req.headers.get("Origin");
   const corsHeaders = corsHeadersFor(origin);
-  const respond = (body: unknown, status = 200) => respond(body, status, corsHeaders);
+  const respond = (body: unknown, status = 200) => json(body, status, corsHeaders);
   if (origin && !allowedOrigins.includes(origin)) return respond({ error: "Origin not allowed." }, 403);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return respond({ error: "Method not allowed." }, 405);
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
 
   let body: any;
   try {
-    body = await req.respond();
+    body = await req.json();
   } catch {
     return respond({ error: "Send a valid JSON request." }, 400);
   }
@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
       signal: AbortSignal.timeout(30000),
     });
 
-    const result = await upstream.respond().catch(() => ({}));
+    const result = await upstream.json().catch(() => ({}));
     if (!upstream.ok) {
       console.error("Gemini request failed", upstream.status, result?.error?.status ?? "unknown");
       if (upstream.status === 429) {
