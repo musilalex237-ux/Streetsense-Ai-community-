@@ -17,11 +17,12 @@ The intended product includes:
 
 ## Current prototype status
 
-The static mobile-first app in `index.html` now connects to the existing Supabase project using its browser-safe publishable key. It includes:
+The development branch `streetsense-rebuild-foundation` contains the current in-progress mobile-first app in `index.html`. It connects to the existing Supabase project using its browser-safe publishable key. It includes:
 - Supabase email sign-up, sign-in and sign-out
 - Registered-user report submission using the existing `reports` table
 - Correct mapping to the existing `kind`, `severity` and `status` enums
 - Road/location name saved in the added `location_name` column
+- Optional user-triggered browser GPS capture, including latitude, longitude, accuracy in metres and capture timestamp
 - New reports start as `unverified` and `public_visible=false`
 - Report references derived from the report UUID
 - Authenticated report lookup, subject to the existing row-level security policies
@@ -29,9 +30,13 @@ The static mobile-first app in `index.html` now connects to the existing Supabas
 - A context-aware local safety-guide fallback plus a secure Supabase Edge Function integration for the Gemini Developer API free tier, with Quick and Deep reasoning modes (requires server-side API key and function deployment)
 - An AI-assisted preliminary hazard assessment button in the report form. It reviews the draft's risk factors, exposed road users, safe precautions, missing verification details and suggested summary. It does not submit the report or make a final severity decision.
 
-**Important limitations:** Guest report submission and guest reference lookup are not implemented. The existing `submitted_by` column is mandatory and current policies require authentication for inserts. Do not weaken RLS or expose private reports to enable guests; implement a secure server-side function first. GPS capture, image uploads, live map, automated report triage, verification workflow, coordinator permissions and authority delivery are not implemented yet. The new draft assessment is advisory only and depends on the deployed Gemini function; it is not an automated triage decision. The scripted assistant is not a connected AI model and does not have live road-condition data.
+**Important limitations:** Guest report submission and guest reference lookup are not implemented. The existing `submitted_by` column is mandatory and current policies require authentication for inserts. Do not weaken RLS or expose private reports to enable guests; implement a secure server-side function first. Image uploads, live map, automated report triage, verification workflow, coordinator permissions and authority delivery are not implemented yet. The new draft assessment is advisory only and depends on the deployed Gemini function; it is not an automated triage decision. The scripted assistant is not a connected AI model and does not have live road-condition data.
 
 The Gemini model integration is implemented in `supabase/functions/streetsense-assistant/` but is not live until the Edge Function is deployed and the `GEMINI_API_KEY` secret is configured. Quick mode uses lower reasoning effort; Deep mode requests higher reasoning effort and consumes more of the free-tier quota. When a quota is reached, the app asks users to wait and retry; no paid fallback is configured. See `AI_SETUP.md`. Until then, the chat uses a clearly disclosed local safety-guide fallback. It has no live road-condition feed. Do not present its guidance as verified live intelligence. The browser uses the Supabase publishable key only. Never put a Supabase secret or service-role key in frontend code. Keep row-level security enabled.
+
+## Development branch
+
+The `streetsense-rebuild-foundation` branch preserves `main` and records the rebuild sequence in `docs/REBUILD_PLAN.md`. The branch is not yet deployed. Do not merge it until the live database schema, row-level security and mobile flows have been verified.
 
 ## Next engineering milestones
 
