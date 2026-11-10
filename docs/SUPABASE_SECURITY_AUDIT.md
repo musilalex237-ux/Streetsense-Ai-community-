@@ -2,45 +2,52 @@
 
 ## Audit status
 
-**Repository-side review completed. Live Supabase database inspection is pending connection to the correct Supabase project.**
+**Live inspection completed for the Supabase project `kebfbnlgwyzeijevyvzy`.** The audit was read-only except for the narrowly scoped role-helper permission hardening described below. No report rows or user data were edited.
 
-The repository currently contains no checked-in SQL migration history. The browser app expects the `reports` table to expose at least these fields:
+The live schema contains six public tables: `profiles`, `user_roles`, `reports`, `report_verifications`, `authority_contacts` and `authority_delivery_attempts`. RLS is enabled on all six. The live `reports` table includes the GPS fields used by this branch: `latitude`, `longitude`, `location_accuracy_m` and `location_captured_at`. The report kind, severity and status enums align with the current report form.
 
-- `id`, `submitted_by`, `kind`, `severity`, `description`
-- `location_name`, `landmark`, `status`, `public_visible`, `created_at`
-- Optional GPS fields used by the current branch: `latitude`, `longitude`, `location_accuracy_m`, `location_captured_at`
+## Access model observations
 
-The app also assumes that its values for `kind`, `severity` and `status` match the live database enum or check-constraint values. These assumptions must be compared with the actual project before migrations or new modules are added.
+- Report inserts are restricted by RLS to signed-in users inserting their own report in the initial `unverified`, non-public state.
+- Public report reads are limited by policy to records deliberately marked public and in `verified` or `resolved` status.
+- Signed-in reporters can read their own reports; privileged roles have additional review access.
+- Profiles are scoped to the current user's row.
+- Verification records are readable by their reviewer and designated review roles.
+- Authority contact and delivery-attempt reads are restricted to authority/platform roles by RLS.
+- The delivery-attempt RPC is executable only by `service_role` and checks its service-role context, contact activation and contact verification before recording an attempt.
+- The verification RPC is executable by authenticated users but checks for a signed-in moderator/platform administrator and prevents self-verification before applying its review rules. It intentionally uses `SECURITY DEFINER` to perform the protected verification write; retain this only while its internal authorization checks remain intact and covered by tests.
+- Table-level grants exist for API roles, but RLS is the row-level boundary. Do not add policies or weaken RLS to enable guest submissions.
 
-## Read-only audit query
+## Hardening completed
 
-Run `supabase/audit/READ_ONLY_SCHEMA_AUDIT.sql` in the Supabase SQL Editor. It lists public columns, constraints, RLS flags, policies, enum labels, functions, triggers and storage buckets/policies. It contains SELECT statements only.
+The public helper `has_any_role(app_role[])` previously had execute permission for `anon`. It was changed to `SECURITY INVOKER`, with execution revoked from `PUBLIC` and `anon`, and granted to `authenticated` and `service_role`. It checks only the current user's own role rows. A verification query confirmed: it is no longer SECURITY DEFINER, anonymous execution is false, and authenticated execution is true.
 
-Do not apply schema changes until the query results have been reviewed. In particular:
-- Confirm every report column and exact type/default.
-- Confirm `submitted_by` ownership and all insert/select/update policies.
-- Confirm public feed access is limited to deliberately published records and does not expose reporter identity or private descriptions.
-- Confirm verification and authority-delivery functions cannot be called by ordinary users to approve or escalate their own reports.
-- Confirm storage evidence is private by default and scoped to authorised access.
-- Confirm any security-definer function has a safe `search_path` and explicit permission checks.
+This change was recorded in Supabase migration history as `20261110233105_secure_role_helper_permissions`. It did not modify report rows or table policies.
 
-## Edge Function review
+## Remaining security items
 
-The current `streetsense-assistant` function:
+1. Supabase Security Advisor now reports no anonymous SECURITY DEFINER function exposure. It still warns about the authenticated `submit_report_verification` SECURITY DEFINER RPC. Its internal moderator/platform-role checks were inspected; keep the warning documented and test it with ordinary-user and moderator accounts before enabling the verification UI.
+2. Leaked-password protection is disabled in Supabase Auth. Enable it in the Supabase Dashboard's Auth password/security settings after reviewing the effect on sign-up and password changes.
+3. The repository's AI Edge Function uses wildcard CORS and has no per-user application rate limit. It is not deployed in this Supabase project. Before deployment, narrow CORS to the actual production origin(s), add abuse/rate controls, configure `GEMINI_API_KEY` as a server-side secret, and test authenticated access.
+4. The project has no prior migration history; the new security migration is the first recorded migration. Reconcile the existing live schema into a baseline before future schema migrations to avoid drift.
+5. Storage evidence uploads are not implemented in the current branch. Before adding them, define private bucket rules and test ownership/reviewer access.
+
+## AI function review
+
+The repository's `supabase/functions/streetsense-assistant/index.ts`:
 - Requires a Bearer token and validates it with `auth.getUser()`.
 - Uses the caller's authenticated context with the Supabase anon key.
 - Keeps `GEMINI_API_KEY` in server-side environment variables.
 - Limits the message to 1,800 characters and history to the last eight bounded messages.
-- Has no application-level per-user rate limit in the current code.
-- Uses wildcard CORS (`Access-Control-Allow-Origin: *`). This does not replace authentication, but should be narrowed to the production app origin(s) before release.
-- Has no report mutation permissions; the system prompt explicitly says the assistant cannot submit, verify, publish or escalate reports.
+- Has no application-level per-user rate limit.
+- Uses wildcard CORS, which must be narrowed before release.
+- Does not write reports, verify or publish alerts, contact authorities, or fetch live road-condition data.
 
-## Next safe actions
+## Release gates
 
-1. Connect the Supabase project connector in ChatGPT and confirm the project URL/ID matches the intended StreetSense project.
-2. Run the read-only audit query and review its results.
-3. Add a versioned migration only for verified gaps, with rollback notes where feasible.
-4. Add server-side AI request rate limits and production-origin CORS.
-5. Test RLS using separate ordinary-user and coordinator accounts before exposing any feed, verification or case-management action.
-
-No live database changes were made as part of this audit.
+- Test RLS with separate ordinary-user, moderator and authority accounts.
+- Test the verification RPC against ordinary-user attempts, self-verification and valid moderator review.
+- Enable leaked-password protection.
+- Add AI rate limiting and production-origin CORS before deploying the Edge Function.
+- Reconcile migration history and establish a safe schema baseline.
+- Do not merge the rebuild branch or deploy the AI function until these gates are reviewed.
