@@ -1,10 +1,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+const allowedOrigins = (Deno.env.get("STREETSENSE_ALLOWED_ORIGINS") ??
+  "https://streetsense.musilalex237.workers.dev")
+  .split(",").map((origin) => origin.trim()).filter(Boolean);
+
+function corsHeadersFor(origin: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+  if (origin && allowedOrigins.includes(origin)) headers["Access-Control-Allow-Origin"] = origin;
+  return headers;
+}
 
 const SYSTEM_PROMPT = `You are StreetSense AI, a careful community road-safety reasoning assistant for the Thika, Kenya pilot.
 
@@ -27,10 +35,10 @@ REASONING
 STYLE
 Use clear, concise language suitable for a mobile user. Be empathetic without alarmism. Prefer short steps. State uncertainty plainly. If a question is unrelated to road safety, answer briefly when safe and explain how it relates to the platform only if useful.`;
 
-function json(body: unknown, status = 200) {
+function json(body: unknown, status = 200, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json" },
   });
 }
 
@@ -41,36 +49,60 @@ function extractText(payload: any): string {
 }
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get("Origin");
+  const corsHeaders = corsHeadersFor(origin);
+  const respond = (body: unknown, status = 200) => respond(body, status, corsHeaders);
+  if (origin && !allowedOrigins.includes(origin)) return respond({ error: "Origin not allowed." }, 403);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  if (req.method !== "POST") return respond({ error: "Method not allowed." }, 405);
 
   const authHeader = req.headers.get("Authorization") ?? "";
-  if (!authHeader.startsWith("Bearer ")) return json({ error: "Sign in to use StreetSense AI." }, 401);
+  if (!authHeader.startsWith("Bearer ")) return respond({ error: "Sign in to use StreetSense AI." }, 401);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   const model = Deno.env.get("STREETSENSE_GEMINI_MODEL") ?? "gemini-3.8-flash";
 
-  if (!supabaseUrl || !supabaseAnonKey) return json({ error: "Supabase function configuration is incomplete." }, 503);
-  if (!geminiKey) return json({ error: "The free-tier Gemini API key has not been configured yet. The local safety guide is still available." }, 503);
+  if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) return respond({ error: "Supabase function configuration is incomplete." }, 503);
+  if (!geminiKey) return respond({ error: "The free-tier Gemini API key has not been configured yet. The local safety guide is still available." }, 503);
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError || !authData.user) return json({ error: "Your session is invalid or expired. Please sign in again." }, 401);
+  if (authError || !authData.user) return respond({ error: "Your session is invalid or expired. Please sign in again." }, 401);
 
   let body: any;
   try {
-    body = await req.json();
+    body = await req.respond();
   } catch {
-    return json({ error: "Send a valid JSON request." }, 400);
+    return respond({ error: "Send a valid JSON request." }, 400);
   }
 
   const message = typeof body?.message === "string" ? body.message.trim() : "";
-  if (!message || message.length > 1800) return json({ error: "Your message must be between 1 and 1,800 characters." }, 400);
+  if (!message || message.length > 1800) return respond({ error: "Your message must be between 1 and 1,800 characters." }, 400);
+
+  const limiter = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: allowed, error: limitError } = await limiter.rpc(
+    "consume_streetsense_ai_rate_limit",
+    { p_user_id: authData.user.id },
+  );
+  if (limitError) {
+    console.error("StreetSense AI rate-limit check failed", limitError.message);
+    return respond({ error: "StreetSense AI is temporarily unavailable. Please try again shortly." }, 503);
+  }
+  if (allowed !== true) {
+    const retryAfterSeconds = 60 - new Date().getSeconds();
+    return respond({
+      error: "You've reached the StreetSense AI limit of 12 messages per minute. Please wait a moment and try again.",
+      retryAfterSeconds,
+    }, 429);
+  }
 
   const reasoning = body?.reasoning === "deep" ? "high" : "low";
   const history = Array.isArray(body?.history) ? body.history.slice(-8).flatMap((item: any) => {
@@ -98,27 +130,27 @@ Deno.serve(async (req) => {
       signal: AbortSignal.timeout(30000),
     });
 
-    const result = await upstream.json().catch(() => ({}));
+    const result = await upstream.respond().catch(() => ({}));
     if (!upstream.ok) {
       console.error("Gemini request failed", upstream.status, result?.error?.status ?? "unknown");
       if (upstream.status === 429) {
         const retryHeader = upstream.headers.get("Retry-After");
         const retryAfterSeconds = retryHeader ? Number(retryHeader) : null;
-        return json({
+        return respond({
           error: retryAfterSeconds
             ? `StreetSense AI has reached a temporary free-tier limit. Please wait about ${Math.max(1, Math.ceil(retryAfterSeconds / 60))} minute(s) and try again.`
             : "StreetSense AI has reached its free-tier request or daily quota. Please wait for the limit to reset, then try again. Deep reasoning uses more of the available allowance.",
           retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : null,
         }, 429);
       }
-      return json({ error: "Gemini could not complete that request. Please try again." }, 502);
+      return respond({ error: "Gemini could not complete that request. Please try again." }, 502);
     }
 
     const reply = extractText(result);
-    if (!reply) return json({ error: "Gemini returned an empty response. Please try again." }, 502);
-    return json({ reply, model, reasoning });
+    if (!reply) return respond({ error: "Gemini returned an empty response. Please try again." }, 502);
+    return respond({ reply, model, reasoning });
   } catch (error) {
     console.error("StreetSense AI request error", error instanceof Error ? error.message : "unknown");
-    return json({ error: "StreetSense AI is temporarily unavailable. Please try again." }, 502);
+    return respond({ error: "StreetSense AI is temporarily unavailable. Please try again." }, 502);
   }
 });
