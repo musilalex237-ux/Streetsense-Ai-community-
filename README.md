@@ -26,11 +26,11 @@ The static mobile-first app in `index.html` now connects to the existing Supabas
 - Report references derived from the report UUID
 - Authenticated report lookup, subject to the existing row-level security policies
 - Public feed visibility governed by the existing Supabase policies
-- A context-aware road-safety assistant with hazard-specific guidance, urgency cues, report preparation and follow-up help
+- A context-aware local safety-guide fallback plus a secure Supabase Edge Function integration for the OpenAI Responses API (requires server-side API key and function deployment)
 
 **Important limitations:** Guest report submission and guest reference lookup are not implemented. The existing `submitted_by` column is mandatory and current policies require authentication for inserts. Do not weaken RLS or expose private reports to enable guests; implement a secure server-side function first. GPS capture, image uploads, live map, AI model integration, automated triage, verification workflow, coordinator permissions and authority delivery are not implemented yet. The scripted assistant is not a connected AI model and does not have live road-condition data.
 
-The assistant currently uses transparent, local rule-based reasoning; it is not yet connected to a hosted language model and has no live road-condition feed. Do not present its guidance as verified live intelligence. The browser uses the Supabase publishable key only. Never put a Supabase secret or service-role key in frontend code. Keep row-level security enabled.
+The connected model integration is implemented in `supabase/functions/streetsense-assistant/` but is not live until the Edge Function is deployed and the `OPENAI_API_KEY` secret is configured. Until then, the chat uses a clearly disclosed local safety-guide fallback. It has no live road-condition feed. Do not present its guidance as verified live intelligence. The browser uses the Supabase publishable key only. Never put a Supabase secret or service-role key in frontend code. Keep row-level security enabled.
 
 ## Next engineering milestones
 
@@ -40,7 +40,7 @@ The assistant currently uses transparent, local rule-based reasoning; it is not 
 4. Add an AI provider adapter with transparent fallback and human-reviewed triage.
 5. Build verification, coordinator case management and authority delivery audit trail.
 6. Add a live map/feed, accessibility checks and end-to-end tests.
-7. Deploy to Cloudflare Pages and verify the public URL.
+7. Deploy the `streetsense-assistant` Supabase Edge Function and configure its server-side secrets (see `AI_SETUP.md`).\n8. Deploy to Cloudflare Pages and verify the public URL.
 
 ## Run locally
 
