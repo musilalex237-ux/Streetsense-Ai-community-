@@ -135,7 +135,29 @@ function answer(q){
  if(/photo|picture|evidence/.test(t)) return 'A photo can help reviewers understand a hazard, but take it only from a safe place. Never stop in a live lane, walk into traffic or use your phone while driving. Include a road name and landmark because an image alone may not identify the location.';
  return 'I can help assess a road-safety situation, explain safe next steps and prepare a useful community report. Tell me three things: what hazard you noticed, where it is (road/junction/landmark), and whether you are walking, driving or riding. I will use those details to give more relevant guidance. I do not have live road-condition data, so I will not claim a road is currently clear or safe.';
 }
-function send(){let q=$('chatInput').value.trim();if(!q)return;let log=$('chatlog');log.insertAdjacentHTML('beforeend','<div class="bubble user">'+esc(q)+'</div><div class="bubble">'+esc(answer(q))+'</div>');$('chatInput').value='';log.scrollTop=log.scrollHeight}
+const assistantHistory=[];
+async function send(){
+ let q=$('chatInput').value.trim();if(!q)return;
+ if(q.length>1800){toast('Please keep your question under 1,800 characters.');return}
+ const log=$('chatlog'),button=$('sendChat'),input=$('chatInput');
+ log.insertAdjacentHTML('beforeend','<div class="bubble user">'+esc(q)+'</div>');
+ input.value='';input.disabled=true;button.disabled=true;button.textContent='Thinking…';
+ log.insertAdjacentHTML('beforeend','<div class="bubble" id="assistantPending">StreetSense is thinking through your question…</div>');
+ log.scrollTop=log.scrollHeight;
+ let reply='';
+ if(!currentUser){
+   reply='Sign in to use the connected StreetSense AI assistant. For general guidance, '+answer(q);
+ }else{
+   const {data,error}=await db.functions.invoke('streetsense-assistant',{body:{message:q,history:assistantHistory}});
+   if(!error&&data?.reply){reply=data.reply;assistantHistory.push({role:'user',content:q},{role:'assistant',content:reply});}
+   else{
+     const reason=data?.error||error?.message||'The AI function is not deployed or configured yet.';
+     reply='The connected AI is not available yet ('+reason+'). Local safety guide: '+answer(q);
+   }
+ }
+ const pending=$('assistantPending');if(pending){pending.textContent=reply;pending.removeAttribute('id')}
+ input.disabled=false;button.disabled=false;button.textContent='Send';input.focus();log.scrollTop=log.scrollHeight;
+}
 $('sendChat').onclick=send;$('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')send()});
 db.auth.getSession().then(async({data})=>{currentUser=data.session?.user||null;updateAuthUI();await refreshReports()});
 db.auth.onAuthStateChange((_event,session)=>{currentUser=session?.user||null;updateAuthUI();refreshReports()});
