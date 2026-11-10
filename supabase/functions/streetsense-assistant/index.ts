@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents,
         generationConfig: {
-          maxOutputTokens: 1800,
+          maxOutputTokens: 4096,
           thinkingConfig: { thinkingLevel: reasoning },
         },
       }),
