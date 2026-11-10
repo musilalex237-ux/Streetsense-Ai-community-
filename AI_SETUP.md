@@ -16,14 +16,18 @@ Official references:
 - Rate limits: https://ai.google.dev/gemini-api/docs/rate-limits
 - Thinking controls: https://ai.google.dev/gemini-api/docs/thinking
 
-## Required secret
+## Required secrets and runtime controls
 
-Create a Gemini API key in Google AI Studio: https://aistudio.google.com/app/apikey
+Create a new Gemini API key in Google AI Studio: https://aistudio.google.com/app/apikey
+
+**Security note:** A Gemini key was previously pasted into a chat and should be treated as compromised. Revoke that old key in Google AI Studio and create a replacement. Never commit the replacement or put it in browser code.
 
 Then add it in the Supabase project's Edge Function secrets as:
 
 - `GEMINI_API_KEY` — secret Gemini API key. Never put this in `index.html`, GitHub, or a `VITE_*` variable.
 - `STREETSENSE_GEMINI_MODEL` — optional model override. Default: `gemini-3.8-flash`.
+- `STREETSENSE_ALLOWED_ORIGINS` — comma-separated exact browser origins allowed to call the function. Default is `https://streetsense.musilalex237.workers.dev`. Add the final Cloudflare Pages origin before deployment; do not use a wildcard.
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase provides this to Edge Functions as a server-side environment variable. It is used only by the function to call the private rate-limit RPC. Never expose it to the browser.
 
 Supabase supplies `SUPABASE_URL` and `SUPABASE_ANON_KEY` to Edge Functions.
 
@@ -35,9 +39,17 @@ From a machine with the Supabase CLI linked to the existing project:
 2. Add `GEMINI_API_KEY` as a Supabase Edge Function secret.
 3. Deploy the `streetsense-assistant` function from this repository.
 4. Keep JWT verification enabled.
-5. Test both Quick and Deep reasoning while signed in.
+5. Confirm `STREETSENSE_ALLOWED_ORIGINS` contains the exact deployed app origin(s).
+6. Test the per-user limit (12 requests per minute), including the 429 wait response.
+7. Test both Quick and Deep reasoning while signed in.
 
 The function uses the existing Supabase project and does not create or alter database tables.
+
+## Request protection
+
+The database migration `20261110233655_streetsense_ai_rate_limit.sql` creates a private rate-limit table and a service-role-only RPC. The Edge Function checks the authenticated user's ID and permits up to 12 requests per minute. The table has RLS enabled and no anon/authenticated table grants. If the rate-limit check fails, the function fails closed and does not call Gemini.
+
+CORS is restricted to exact origins from `STREETSENSE_ALLOWED_ORIGINS`; requests from other browser origins are rejected. CORS is not authentication, so JWT validation remains mandatory.
 
 ## Free-tier privacy and usage notes
 
