@@ -26,11 +26,11 @@ The static mobile-first app in `index.html` now connects to the existing Supabas
 - Report references derived from the report UUID
 - Authenticated report lookup, subject to the existing row-level security policies
 - Public feed visibility governed by the existing Supabase policies
-- A context-aware local safety-guide fallback plus a secure Supabase Edge Function integration for the OpenAI Responses API (requires server-side API key and function deployment)
+- A context-aware local safety-guide fallback plus a secure Supabase Edge Function integration for the Gemini Developer API free tier, with Quick and Deep reasoning modes (requires server-side API key and function deployment)
 
 **Important limitations:** Guest report submission and guest reference lookup are not implemented. The existing `submitted_by` column is mandatory and current policies require authentication for inserts. Do not weaken RLS or expose private reports to enable guests; implement a secure server-side function first. GPS capture, image uploads, live map, AI model integration, automated triage, verification workflow, coordinator permissions and authority delivery are not implemented yet. The scripted assistant is not a connected AI model and does not have live road-condition data.
 
-The connected model integration is implemented in `supabase/functions/streetsense-assistant/` but is not live until the Edge Function is deployed and the `OPENAI_API_KEY` secret is configured. Until then, the chat uses a clearly disclosed local safety-guide fallback. It has no live road-condition feed. Do not present its guidance as verified live intelligence. The browser uses the Supabase publishable key only. Never put a Supabase secret or service-role key in frontend code. Keep row-level security enabled.
+The Gemini model integration is implemented in `supabase/functions/streetsense-assistant/` but is not live until the Edge Function is deployed and the `GEMINI_API_KEY` secret is configured. Quick mode uses lower reasoning effort; Deep mode requests higher reasoning effort and consumes more of the free-tier quota. When a quota is reached, the app asks users to wait and retry; no paid fallback is configured. See `AI_SETUP.md`. Until then, the chat uses a clearly disclosed local safety-guide fallback. It has no live road-condition feed. Do not present its guidance as verified live intelligence. The browser uses the Supabase publishable key only. Never put a Supabase secret or service-role key in frontend code. Keep row-level security enabled.
 
 ## Next engineering milestones
 
