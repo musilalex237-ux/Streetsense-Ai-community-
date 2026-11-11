@@ -36,7 +36,7 @@ The Edge Function in this branch:
 - Does not write reports, verify/publish alerts, contact authorities, or fetch live road-condition data.
 - Has JWT verification enabled in `supabase/config.toml`.
 
-**Deployment status:** No Supabase Edge Functions were deployed at the time of this audit. The branch code and database migration are not proof of a live AI integration. The user has reported saving `GROQ_API_KEY`, but secret values cannot be read back or independently verified through the connected tools. The exact deployed browser origin also remains to be confirmed.
+**Deployment status:** `streetsense-assistant` is now deployed and ACTIVE at version 1 with JWT verification enabled. The deployed source was retrieved and matched against the reviewed branch code. A live authenticated Groq request has not yet been exercised: the connected tools cannot submit a signed-in user's JWT to the endpoint, and no function invocation logs exist yet. The user has reported saving `GROQ_API_KEY`, but secret values cannot be read back or independently verified through the connected tools. The exact browser origin is still not finalized.
 
 ## Current Security Advisor findings
 
