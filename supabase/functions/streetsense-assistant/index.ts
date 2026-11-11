@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const groqKey = Deno.env.get("GROQ_API_KEY");
-  const model = Deno.env.get("STREETSENSE_GROQ_MODEL") ?? "llama-3.3-70b-versatile";
+  const model = Deno.env.get("STREETSENSE_GROQ_MODEL") ?? "openai/gpt-oss-120b";
 
   if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) return respond({ error: "Supabase function configuration is incomplete." }, 503);
   if (!groqKey) return respond({ error: "StreetSense AI provider is not configured yet. The local safety guide is still available." }, 503);
@@ -121,6 +121,8 @@ Deno.serve(async (req) => {
         model,
         messages,
         max_completion_tokens: reasoning === "deep" ? 1800 : 900,
+        reasoning_effort: reasoning === "deep" ? "high" : "low",
+        reasoning_format: "hidden",
         temperature: 0.3,
       }),
       signal: AbortSignal.timeout(30000),
